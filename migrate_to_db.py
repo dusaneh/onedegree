@@ -41,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger("migrate")
 
 # Data paths
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent / "data"
 FORM_JSONL_PATH = DATA_DIR / "form_metadata.jsonl"
 CANONICAL_CACHE_PATH = DATA_DIR / "canonical_mappings.json"
 

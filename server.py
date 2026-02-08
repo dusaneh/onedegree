@@ -895,7 +895,7 @@ def serve_example_pdf(filename):
     Example: GET /examples/opp1.pdf
     """
     from flask import send_from_directory
-    examples_dir = Path(__file__).parent.parent / "examples"
+    examples_dir = Path(__file__).parent / "examples"
 
     if not examples_dir.exists():
         return jsonify({"error": "Examples directory not found"}), 404
@@ -910,7 +910,7 @@ def serve_example_pdf(filename):
 @app.route("/examples", methods=["GET"])
 def list_example_pdfs():
     """List available example PDFs."""
-    examples_dir = Path(__file__).parent.parent / "examples"
+    examples_dir = Path(__file__).parent / "examples"
 
     if not examples_dir.exists():
         return jsonify({"files": [], "error": "Examples directory not found"})

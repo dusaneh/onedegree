@@ -25,7 +25,7 @@ if not logger.handlers:
     logger.addHandler(console_handler)
 
 # Configuration
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent / "data"
 DEFAULT_PDF_DIR = DATA_DIR / "pdfs"
 CHUNK_SIZE = 8192
 REQUEST_TIMEOUT = 30

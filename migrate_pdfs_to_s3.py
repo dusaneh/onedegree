@@ -40,7 +40,7 @@ logging.basicConfig(
 logger = logging.getLogger("migrate_pdfs_to_s3")
 
 # Data directories
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent / "data"
 PDF_DIR = DATA_DIR / "pdfs"
 FILLED_DIR = DATA_DIR / "filled"
 

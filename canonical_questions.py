@@ -35,7 +35,7 @@ if not logger.handlers:
     logger.addHandler(console_handler)
 
 # Constants
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent / "data"
 JSONL_PATH = DATA_DIR / "form_metadata.jsonl"
 CANONICAL_MAPPINGS_PATH = DATA_DIR / "canonical_mappings.json"
 

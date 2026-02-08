@@ -34,7 +34,7 @@ if not logger.handlers:
     logger.addHandler(console_handler)
 
 # Constants
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(__file__).parent / "data"
 FILLED_DIR = DATA_DIR / "filled"
 
 

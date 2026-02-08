@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 csv_lock = threading.Lock()
 
 # Default paths
-DEFAULT_CSV_PATH = Path(__file__).parent.parent / "data" / "pdf_import.csv"
+DEFAULT_CSV_PATH = Path(__file__).parent / "data" / "pdf_import.csv"
 DEFAULT_API_URL = "http://localhost:5000"
 
 
