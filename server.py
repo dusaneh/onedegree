@@ -34,10 +34,10 @@ from form_mapping import (
     map_single_form,
     map_all_forms,
     update_form_with_mappings,
-    save_updated_forms,
     is_already_mapped,
     FormMappingStats,
 )
+from database import save_form_record_db
 from canonical_questions import (
     list_canonical_versions,
     load_and_simplify_all_forms,
@@ -1109,8 +1109,8 @@ def insert_pdf():
                     # Update record
                     update_form_with_mappings(existing_record, mappings, version_id)
 
-                    # Save all records
-                    save_updated_forms(records)
+                    # Save just this record
+                    save_form_record_db(existing_record)
 
                     response_data["from_cache"] = True
                     response_data["pdf_s3_key"] = existing_record.get("pdf_s3_key")
@@ -1159,16 +1159,8 @@ def insert_pdf():
                 response_data["canonical_version_id"] = None
                 logger.info("No canonical version available, skipping mapping")
 
-            # Reload records (extract_form_metadata appends to file)
-            records = load_form_records()
-
-            # Find and update the newly added record
-            for i, r in enumerate(records):
-                if r.get("opportunity_id") == opp_id and r.get("pdf_checksum") == checksum:
-                    records[i] = new_record_dict
-                    break
-
-            save_updated_forms(records)
+            # Save just the new record
+            save_form_record_db(new_record_dict)
 
             response_data["message"] = "New version inserted (different checksum), old version preserved"
             return jsonify(response_data)
@@ -1209,14 +1201,8 @@ def insert_pdf():
                 response_data["canonical_version_id"] = None
                 logger.info("No canonical version available, skipping mapping")
 
-            # Reload and update records
-            records = load_form_records()
-            for i, r in enumerate(records):
-                if r.get("opportunity_id") == opp_id and r.get("pdf_checksum") == checksum:
-                    records[i] = new_record_dict
-                    break
-
-            save_updated_forms(records)
+            # Save just the new record
+            save_form_record_db(new_record_dict)
 
             response_data["message"] = "New form inserted" + (" and mapped" if latest_version else " (no canonical version)")
             return jsonify(response_data)
