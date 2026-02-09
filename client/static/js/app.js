@@ -265,14 +265,12 @@ function populateVersionFilter() {
 
     const currentValue = filter.value;
 
-    // Get unique versions from all forms
-    const allVersions = new Set();
-    formsData.forEach(f => {
-        (f.versions || []).forEach(v => allVersions.add(v));
-    });
+    // Use canonical versions from versionsData (not from filtered formsData)
+    // This ensures all versions are always available in the dropdown
+    const allVersions = versionsData.map(v => v.version_id).sort();
 
     filter.innerHTML = '<option value="">All Versions</option>' +
-        Array.from(allVersions).sort().map(v =>
+        allVersions.map(v =>
             `<option value="${v}" ${v === currentValue ? 'selected' : ''}>${v}</option>`
         ).join('');
 }
