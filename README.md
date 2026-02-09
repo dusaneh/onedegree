@@ -8,7 +8,10 @@ A Flask-based API for processing, mapping, and filling PDF forms using AI-powere
 - **AI Metadata Extraction**: Extract form questions and fields using Google Gemini API
 - **Canonical Question Mapping**: Create unified question sets across multiple forms
 - **PDF Form Filling**: Fill PDF forms programmatically with mapped answers
+- **Similarity Rating UI**: Human-in-the-loop rating system to evaluate LLM similarity scores
 - **Web UI Client**: Browser-based interface for testing and interacting with the API
+
+See the [Client User Guide](client/CLIENT_README.md) for detailed instructions on using the web interface.
 
 ## Architecture
 
@@ -41,14 +44,19 @@ A Flask-based API for processing, mapping, and filling PDF forms using AI-powere
 ├── batch_import.py        # Batch PDF import utility
 ├── migrate_to_db.py       # Database migration script
 ├── migrate_pdfs_to_s3.py  # S3 migration script
+├── openapi.yaml           # OpenAPI 3.0 specification
 ├── Procfile               # Heroku deployment config
 ├── requirements.txt       # Python dependencies
 ├── runtime.txt            # Python version for Heroku
 └── client/                # Web UI client
+    ├── CLIENT_README.md   # Client user guide
     ├── src/
     │   └── client_server.py   # Client Flask server
     ├── templates/
-    │   └── index.html
+    │   ├── index.html         # Main client UI
+    │   └── rate/              # Rating UI templates
+    │       ├── rate.html      # Rating page
+    │       └── rate_stats.html # Statistics page
     └── static/
         ├── css/style.css
         └── js/app.js
@@ -77,6 +85,8 @@ You can view the interactive documentation by importing the file into:
 | GET | `/api/canonical/versions` | List canonical versions |
 | GET | `/api/canonical/runs` | List canonical creation runs |
 | GET | `/api/canonical/stats` | Get canonical version statistics |
+| GET | `/rate` | Similarity rating UI (web page) |
+| GET | `/rate/stats` | Rating statistics with confidence intervals (web page) |
 
 ## Setup
 
@@ -182,6 +192,34 @@ All tables are prefixed with `od1_`:
 - `od1_field_mappings` - PDF field to question mappings
 - `od1_canonical_versions` - Canonical question versions
 - `od1_canonical_questions` - Canonical question definitions
+- `od1_similarity_ratings` - Human ratings of LLM similarity scores
+
+## Similarity Rating UI
+
+A web-based interface for human raters to evaluate LLM-assigned similarity scores between form questions and canonical questions.
+
+### URLs
+
+| Environment | Rating Page | Statistics Page |
+|-------------|-------------|-----------------|
+| Local | http://localhost:5000/rate | http://localhost:5000/rate/stats |
+| Heroku | https://blurg-aeaf37f6c018.herokuapp.com/rate | https://blurg-aeaf37f6c018.herokuapp.com/rate/stats |
+
+### How It Works
+
+1. **Rate Questions** (`/rate`): Raters see pairs of questions (labeled "Question A" and "Question B") without knowing the LLM's similarity score. They mark each pair as "Same" or "Not Same" based on whether both questions ask for the same information.
+
+2. **View Statistics** (`/rate/stats`): Shows aggregate statistics with bootstrap confidence intervals:
+   - Whisker plot showing % rated "Same" for each LLM score (1-5)
+   - 50% CI (darker bar) and 95% CI (lighter bar)
+   - Data table with exact percentages and CI bounds
+
+### Sampling Strategy
+
+The system uses weighted sampling to balance ratings across all LLM scores:
+- Scores with fewer existing ratings are sampled more heavily
+- Ensures statistical power across all similarity levels
+- Raters don't see which score bucket they're rating (to avoid bias)
 
 ## License
 

@@ -489,6 +489,65 @@ paths:
                   message:
                     type: string
 
+  /rate:
+    get:
+      summary: Rating page
+      description: |
+        Web UI page for human raters to evaluate LLM-assigned similarity scores.
+        Shows pairs of questions (form question vs canonical question) for rating.
+        Raters mark each pair as "Same" or "Not Same".
+      operationId: ratePage
+      tags: [Rating]
+      responses:
+        '200':
+          description: HTML rating page
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: No canonical version available
+
+  /rate/submit:
+    post:
+      summary: Submit ratings
+      description: Submit a batch of similarity ratings and redirect to get more questions
+      operationId: rateSubmit
+      tags: [Rating]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                version_id:
+                  type: string
+                  description: Canonical version ID
+      responses:
+        '302':
+          description: Redirect to /rate for more questions
+        '400':
+          description: Missing version_id
+
+  /rate/stats:
+    get:
+      summary: Rating statistics page
+      description: |
+        Web UI page showing statistics on human ratings with bootstrap confidence intervals.
+        Displays a whisker plot with 50% and 95% CIs for each LLM similarity score (1-5).
+      operationId: rateStatsPage
+      tags: [Rating]
+      responses:
+        '200':
+          description: HTML statistics page
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: No canonical version available
+
 components:
   schemas:
     ErrorResponse:
@@ -768,5 +827,7 @@ tags:
     description: PDF form management and filling
   - name: Canonical
     description: Canonical question management
+  - name: Rating
+    description: Human rating UI for evaluating LLM similarity scores
   - name: Webhooks
     description: Webhook endpoints for testing
