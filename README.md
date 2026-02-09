@@ -54,12 +54,21 @@ A Flask-based API for processing, mapping, and filling PDF forms using AI-powere
         └── js/app.js
 ```
 
-## API Endpoints
+## API Documentation
+
+Full API documentation is available in OpenAPI 3.0 format: **[openapi.yaml](openapi.yaml)**
+
+You can view the interactive documentation by importing the file into:
+- [Swagger Editor](https://editor.swagger.io/)
+- [Postman](https://www.postman.com/)
+- Any OpenAPI-compatible tool
+
+### Endpoints Summary
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/health` | Health check |
-| POST | `/api/pdf` | Add a PDF by URL |
+| POST | `/api/pdf` | Add a PDF by URL or file path |
 | GET | `/api/forms/list` | List all forms |
 | GET | `/api/forms/stats` | Get form statistics |
 | POST | `/api/forms/metadata` | Get form metadata with canonical mappings |
@@ -67,6 +76,7 @@ A Flask-based API for processing, mapping, and filling PDF forms using AI-powere
 | POST | `/api/canonical/create` | Create new canonical question version |
 | GET | `/api/canonical/versions` | List canonical versions |
 | GET | `/api/canonical/runs` | List canonical creation runs |
+| GET | `/api/canonical/stats` | Get canonical version statistics |
 
 ## Setup
 

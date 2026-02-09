@@ -1,0 +1,772 @@
+openapi: 3.0.3
+info:
+  title: OD Map - PDF Form Processing API
+  description: |
+    API for processing, mapping, and filling PDF forms using AI-powered metadata extraction.
+
+    ## Features
+    - PDF ingestion from URLs or local files with S3 storage
+    - AI-powered form metadata extraction using Google Gemini
+    - Canonical question mapping across multiple forms
+    - PDF form filling with mapped answers
+
+    ## Workflow
+    1. Add PDFs via `/api/pdf`
+    2. Create canonical questions via `/api/canonical/create`
+    3. Get form metadata with canonical mappings via `/api/forms/metadata`
+    4. Fill forms with answers via `/api/forms/fill`
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:5000
+    description: Local development
+  - url: https://blurg-aeaf37f6c018.herokuapp.com
+    description: Heroku production
+
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      description: Check if the API server is running
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: form-mapping-api
+
+  /api/pdf:
+    post:
+      summary: Add a PDF form
+      description: |
+        Insert a new PDF by URL or local file path. The PDF is uploaded to S3,
+        metadata is extracted using Gemini AI, and optionally mapped to canonical questions.
+      operationId: insertPdf
+      tags: [Forms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - opportunity_id
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: URL to download the PDF from
+                  example: https://example.com/form.pdf
+                file_path:
+                  type: string
+                  description: Local file path (alternative to URL)
+                  example: C:/forms/application.pdf
+                opportunity_id:
+                  type: string
+                  description: Unique identifier for this opportunity/form
+                  example: "12345"
+      responses:
+        '200':
+          description: PDF processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PdfInsertResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forms/list:
+    get:
+      summary: List all forms
+      description: Get a list of all forms in the system with their metadata and mapping stats
+      operationId: listForms
+      tags: [Forms]
+      parameters:
+        - name: version
+          in: query
+          description: Filter by canonical version ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of forms
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  version_filter:
+                    type: string
+                    nullable: true
+                  total:
+                    type: integer
+                  forms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FormListItem'
+
+  /api/forms/stats:
+    get:
+      summary: Get form statistics
+      description: Get aggregate statistics across all forms
+      operationId: getFormStats
+      tags: [Forms]
+      parameters:
+        - name: version
+          in: query
+          description: Filter by canonical version ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Form statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormStatsResponse'
+
+  /api/forms/metadata:
+    post:
+      summary: Get form metadata with canonical mappings
+      description: |
+        Get detailed form metadata including questions with canonical overrides.
+        Questions that match canonical questions (above min_similarity threshold)
+        will have their text and type replaced with the canonical version.
+      operationId: getFormsMetadata
+      tags: [Forms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - forms
+                - version_id
+                - min_similarity
+              properties:
+                forms:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - opp_id
+                      - checksum
+                    properties:
+                      opp_id:
+                        type: string
+                        description: Opportunity ID
+                      checksum:
+                        type: string
+                        description: PDF checksum for validation
+                version_id:
+                  type: string
+                  description: Canonical version ID to use for mappings
+                min_similarity:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  description: Minimum similarity score (1-5) to use canonical override
+      responses:
+        '200':
+          description: Form metadata with canonical mappings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormsMetadataResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Form or canonical version not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forms/fill:
+    post:
+      summary: Fill a PDF form
+      description: |
+        Fill a PDF form with provided answers. Answers can be keyed by
+        canonical question ID (cq_xxx) or form-specific question ID.
+        Returns a presigned S3 URL to download the filled PDF.
+      operationId: fillForm
+      tags: [Forms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - opp_id
+                - checksum
+                - version_id
+                - answers
+              properties:
+                opp_id:
+                  type: string
+                  description: Opportunity ID
+                checksum:
+                  type: string
+                  description: PDF checksum for validation
+                version_id:
+                  type: string
+                  description: Canonical version ID
+                answers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Map of question IDs to answer values
+                  example:
+                    cq_001: "John"
+                    cq_002: "Doe"
+                    fq_5: "Custom answer"
+                options:
+                  type: object
+                  properties:
+                    truncate_on_char_limit:
+                      type: boolean
+                      default: true
+                      description: Truncate answers that exceed character limits
+                    fail_on_missing_optional:
+                      type: boolean
+                      default: false
+                      description: Fail if optional fields are missing
+      responses:
+        '200':
+          description: Form filled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FillFormResponse'
+        '400':
+          description: Invalid request or checksum mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Form not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/canonical/versions:
+    get:
+      summary: List canonical versions
+      description: Get all available canonical question versions
+      operationId: getCanonicalVersions
+      tags: [Canonical]
+      responses:
+        '200':
+          description: List of canonical versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  latest_version_id:
+                    type: string
+                    nullable: true
+                  versions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CanonicalVersion'
+
+  /api/canonical/create:
+    post:
+      summary: Create canonical questions
+      description: |
+        Start an asynchronous job to create a new canonical questions version.
+        This analyzes all forms and identifies common questions using AI.
+        Returns immediately with a run_id to track progress.
+      operationId: createCanonical
+      tags: [Canonical]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                form_ids:
+                  type: array
+                  items:
+                    type: string
+                  description: Specific form IDs to use (null = all forms)
+                order:
+                  type: string
+                  enum: [latest_first, oldest_first, random]
+                  default: latest_first
+                  description: Order to process forms
+                model:
+                  type: string
+                  default: gemini-3-flash-preview
+                  description: LLM model to use
+                webhook_url:
+                  type: string
+                  format: uri
+                  description: URL to call when complete
+      responses:
+        '200':
+          description: Canonical creation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  run_id:
+                    type: string
+                  status:
+                    type: string
+                    example: started
+                  message:
+                    type: string
+
+  /api/canonical/runs:
+    get:
+      summary: List canonical runs
+      description: Get all canonical creation runs
+      operationId: listCanonicalRuns
+      tags: [Canonical]
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CanonicalRun'
+
+  /api/canonical/run/{run_id}:
+    get:
+      summary: Get run status
+      description: Get the status of a canonical creation run
+      operationId: getCanonicalRunStatus
+      tags: [Canonical]
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Run status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  run:
+                    $ref: '#/components/schemas/CanonicalRun'
+        '404':
+          description: Run not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/canonical/stats:
+    get:
+      summary: Get canonical statistics
+      description: Get statistics for each canonical version including match rates
+      operationId: getCanonicalStats
+      tags: [Canonical]
+      responses:
+        '200':
+          description: Canonical version statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  versions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CanonicalVersionStats'
+
+  /api/webhook/canonical:
+    post:
+      summary: Receive webhook
+      description: Endpoint to receive webhook notifications (for testing)
+      operationId: receiveWebhook
+      tags: [Webhooks]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook received
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+  /api/webhook/received:
+    get:
+      summary: List received webhooks
+      description: List all webhooks received (for testing)
+      operationId: listReceivedWebhooks
+      tags: [Webhooks]
+      responses:
+        '200':
+          description: List of received webhooks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                  webhooks:
+                    type: array
+                    items:
+                      type: object
+
+  /api/webhook/clear:
+    post:
+      summary: Clear received webhooks
+      description: Clear all received webhooks (for testing)
+      operationId: clearReceivedWebhooks
+      tags: [Webhooks]
+      responses:
+        '200':
+          description: Webhooks cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+
+    PdfInsertResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        opportunity_id:
+          type: string
+        checksum:
+          type: string
+        pdf_s3_key:
+          type: string
+          nullable: true
+        canonical_version_id:
+          type: string
+          nullable: true
+        from_cache:
+          type: boolean
+        mapping_stats:
+          type: object
+          nullable: true
+        message:
+          type: string
+
+    FormListItem:
+      type: object
+      properties:
+        opportunity_id:
+          type: string
+        checksum:
+          type: string
+        filename:
+          type: string
+        pdf_s3_key:
+          type: string
+        process_date:
+          type: string
+          format: date-time
+        question_count:
+          type: integer
+        pdf_field_mapped_count:
+          type: integer
+        canonical_mapped_count:
+          type: integer
+        is_form:
+          type: boolean
+        versions:
+          type: array
+          items:
+            type: string
+
+    FormStatsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        version_filter:
+          type: string
+          nullable: true
+        aggregate:
+          type: object
+          properties:
+            total_forms:
+              type: integer
+            forms_with_questions:
+              type: integer
+            questions:
+              type: object
+              properties:
+                min:
+                  type: integer
+                max:
+                  type: integer
+                avg:
+                  type: number
+                total:
+                  type: integer
+            pdf_field_mapping_pct:
+              type: object
+              properties:
+                min:
+                  type: number
+                max:
+                  type: number
+                avg:
+                  type: number
+            canonical_mapping_pct:
+              type: object
+              properties:
+                min:
+                  type: number
+                max:
+                  type: number
+                avg:
+                  type: number
+        forms:
+          type: array
+          items:
+            type: object
+
+    FormsMetadataResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        version_id:
+          type: string
+        min_similarity:
+          type: integer
+        forms:
+          type: array
+          items:
+            type: object
+            properties:
+              opportunity_id:
+                type: string
+              checksum:
+                type: string
+              checksum_valid:
+                type: boolean
+              form_description:
+                type: string
+              total_questions:
+                type: integer
+              canonical_count:
+                type: integer
+              original_count:
+                type: integer
+              canonical_coverage:
+                type: number
+              questions:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuestionWithMapping'
+
+    QuestionWithMapping:
+      type: object
+      properties:
+        question_id:
+          type: string
+        question_number:
+          type: string
+        question_text:
+          type: string
+        question_type:
+          type: string
+        char_limit:
+          type: integer
+          nullable: true
+        is_agreement:
+          type: boolean
+        sub_question_of:
+          type: string
+          nullable: true
+        unique_structure:
+          type: boolean
+        is_canonical:
+          type: boolean
+        canonical_question_id:
+          type: string
+          nullable: true
+        similarity_score:
+          type: integer
+          nullable: true
+        debug:
+          type: object
+          properties:
+            canonical:
+              type: object
+              nullable: true
+            original:
+              type: object
+
+    FillFormResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        opp_id:
+          type: string
+        checksum:
+          type: string
+        output_s3_key:
+          type: string
+        download_url:
+          type: string
+          description: Presigned S3 URL to download the filled PDF
+        validation_report:
+          type: object
+          properties:
+            success:
+              type: boolean
+            stages:
+              type: array
+              items:
+                type: object
+            summary:
+              type: object
+
+    CanonicalVersion:
+      type: object
+      properties:
+        version_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        model_used:
+          type: string
+        question_count:
+          type: integer
+        is_latest:
+          type: boolean
+
+    CanonicalVersionStats:
+      type: object
+      properties:
+        version_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        model_used:
+          type: string
+        canonical_questions_count:
+          type: integer
+        forms_mapped:
+          type: integer
+        total_questions_mapped:
+          type: integer
+        total_matches:
+          type: integer
+        avg_match_rate:
+          type: number
+
+    CanonicalRun:
+      type: object
+      properties:
+        run_id:
+          type: string
+        status:
+          type: string
+          enum: [started, loading_forms, processing, calling_llm, mapping_forms, completed, failed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version_id:
+          type: string
+        total_forms:
+          type: integer
+        total_questions:
+          type: integer
+        error:
+          type: string
+          nullable: true
+        stats:
+          type: object
+          nullable: true
+
+tags:
+  - name: System
+    description: System health and status endpoints
+  - name: Forms
+    description: PDF form management and filling
+  - name: Canonical
+    description: Canonical question management
+  - name: Webhooks
+    description: Webhook endpoints for testing
