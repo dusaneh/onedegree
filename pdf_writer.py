@@ -752,20 +752,15 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
         else:
             logger.warning("Source PDF has no form schema!")
 
-        # Fill the form
-        logger.info("Calling PdfWrapper.fill()...")
-        filled = pdf.fill(field_values)
-
-        # Flatten the PDF to make field values permanently visible
-        # This converts form fields to static content
-        logger.info("Flattening PDF to make values visible...")
-        flattened = filled.flatten()
+        # Fill the form with flatten=True to make values permanently visible
+        logger.info("Calling PdfWrapper.fill(flatten=True)...")
+        filled = pdf.fill(field_values, flatten=True)
 
         # Write to output
         with open(output_path, "wb") as f:
-            flattened_bytes = flattened.read()
-            f.write(flattened_bytes)
-            logger.info(f"Wrote {len(flattened_bytes)} bytes to output")
+            filled_bytes = filled.read()
+            f.write(filled_bytes)
+            logger.info(f"Wrote {len(filled_bytes)} bytes to output")
 
         logger.info(f"PDF written to: {output_path}")
         return True
