@@ -727,23 +727,48 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
         from PyPDFForm import PdfWrapper
 
         logger.info(f"Writing {len(field_values)} fields to PDF...")
-        logger.debug(f"Field values: {field_values}")
+
+        # Log each field value being written
+        for field_name, value in field_values.items():
+            logger.info(f"  Field '{field_name}' = {repr(value)} (type: {type(value).__name__})")
 
         # Ensure output directory exists
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
+        # Get source PDF schema to verify fields exist
+        pdf = PdfWrapper(source_path)
+        source_schema = pdf.schema
+        if source_schema:
+            schema_fields = source_schema.get("properties", {})
+            logger.info(f"Source PDF has {len(schema_fields)} form fields")
+
+            # Check which target fields exist in the PDF
+            for field_name in field_values:
+                if field_name in schema_fields:
+                    field_info = schema_fields[field_name]
+                    logger.info(f"  Found field '{field_name}' in PDF: {field_info}")
+                else:
+                    logger.warning(f"  Field '{field_name}' NOT FOUND in PDF schema!")
+        else:
+            logger.warning("Source PDF has no form schema!")
+
         # Fill the form
-        filled = PdfWrapper(source_path).fill(field_values)
+        logger.info("Calling PdfWrapper.fill()...")
+        filled = pdf.fill(field_values)
 
         # Write to output
         with open(output_path, "wb") as f:
-            f.write(filled.read())
+            filled_bytes = filled.read()
+            f.write(filled_bytes)
+            logger.info(f"Wrote {len(filled_bytes)} bytes to output")
 
         logger.info(f"PDF written to: {output_path}")
         return True
 
     except Exception as e:
         logger.error(f"Failed to write PDF: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
 
 
