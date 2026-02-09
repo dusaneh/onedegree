@@ -713,7 +713,7 @@ def transform_answers_to_pdf_values(
 
 def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) -> bool:
     """
-    Write values to a PDF form using pikepdf for direct field manipulation.
+    Write values to a PDF form using PyPDFForm.
 
     Args:
         source_path: Path to the source PDF
@@ -724,9 +724,9 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
         True if write succeeded
     """
     try:
-        import pikepdf
+        from PyPDFForm import PdfWrapper
 
-        logger.info(f"Writing {len(field_values)} fields to PDF using pikepdf...")
+        logger.info(f"Writing {len(field_values)} fields to PDF...")
 
         # Log each field value being written
         for field_name, value in field_values.items():
@@ -735,114 +735,39 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
         # Ensure output directory exists
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Open PDF with pikepdf
-        pdf = pikepdf.open(source_path)
+        # Get source PDF schema to verify fields exist
+        pdf = PdfWrapper(source_path)
+        source_schema = pdf.schema
+        if source_schema:
+            schema_fields = source_schema.get("properties", {})
+            logger.info(f"Source PDF has {len(schema_fields)} form fields")
 
-        # Get the AcroForm (form fields container)
-        if "/AcroForm" not in pdf.Root:
-            logger.warning("PDF has no AcroForm!")
-            pdf.close()
-            return False
-
-        acroform = pdf.Root.AcroForm
-
-        if "/Fields" not in acroform:
-            logger.warning("AcroForm has no Fields!")
-            pdf.close()
-            return False
-
-        fields = acroform.Fields
-        logger.info(f"Found {len(fields)} top-level form fields")
-
-        # Build a map of field name to field object
-        def get_all_fields(field_list, parent_name=""):
-            """Recursively get all fields including children."""
-            result = {}
-            for field in field_list:
-                field_name = str(field.get("/T", "")) if "/T" in field else ""
-                full_name = f"{parent_name}.{field_name}" if parent_name else field_name
-
-                # If this field has kids, recurse
-                if "/Kids" in field:
-                    result.update(get_all_fields(field.Kids, full_name))
+            # Check which target fields exist in the PDF
+            for field_name in field_values:
+                if field_name in schema_fields:
+                    field_info = schema_fields[field_name]
+                    logger.info(f"  Found field '{field_name}' in PDF: {field_info}")
                 else:
-                    # This is a terminal field (widget)
-                    result[field_name] = field
-                    if full_name != field_name:
-                        result[full_name] = field
+                    logger.warning(f"  Field '{field_name}' NOT FOUND in PDF schema!")
+        else:
+            logger.warning("Source PDF has no form schema!")
 
-                # Also store by the simple name
-                if field_name:
-                    result[field_name] = field
+        # Fill the form
+        logger.info("Calling PdfWrapper.fill()...")
+        filled = pdf.fill(field_values)
 
-            return result
+        # Flatten the PDF to make field values permanently visible
+        # This converts form fields to static content
+        logger.info("Flattening PDF to make values visible...")
+        flattened = filled.flatten()
 
-        all_fields = get_all_fields(fields)
-        logger.info(f"Total fields (including nested): {len(all_fields)}")
+        # Write to output
+        with open(output_path, "wb") as f:
+            flattened_bytes = flattened.read()
+            f.write(flattened_bytes)
+            logger.info(f"Wrote {len(flattened_bytes)} bytes to output")
 
-        fields_updated = 0
-        for field_name, value in field_values.items():
-            if field_name not in all_fields:
-                logger.warning(f"  Field '{field_name}' not found in PDF!")
-                continue
-
-            field = all_fields[field_name]
-            field_type = str(field.get("/FT", "")) if "/FT" in field else ""
-
-            logger.info(f"  Setting '{field_name}' (type={field_type}) = {repr(value)}")
-
-            if field_type == "/Btn":
-                # Checkbox or radio button
-                if isinstance(value, bool):
-                    if value:
-                        # Check the box - need to find the "on" value
-                        if "/AP" in field and "/N" in field.AP:
-                            # Get the "on" state name from appearance dict
-                            states = list(field.AP.N.keys())
-                            on_state = [s for s in states if str(s) != "/Off"]
-                            if on_state:
-                                field.V = pikepdf.Name(str(on_state[0])[1:])
-                                field.AS = pikepdf.Name(str(on_state[0])[1:])
-                            else:
-                                field.V = pikepdf.Name("Yes")
-                                field.AS = pikepdf.Name("Yes")
-                        else:
-                            field.V = pikepdf.Name("Yes")
-                            field.AS = pikepdf.Name("Yes")
-                    else:
-                        field.V = pikepdf.Name("Off")
-                        field.AS = pikepdf.Name("Off")
-                    fields_updated += 1
-            elif field_type == "/Tx":
-                # Text field
-                field.V = pikepdf.String(str(value))
-                # Clear any existing appearance stream to force regeneration
-                if "/AP" in field:
-                    del field["/AP"]
-                # Set the NeedAppearances flag
-                acroform.NeedAppearances = pikepdf.Boolean(True)
-                fields_updated += 1
-            elif field_type == "/Ch":
-                # Choice field (dropdown/listbox)
-                field.V = pikepdf.String(str(value))
-                fields_updated += 1
-            else:
-                # Unknown type, try to set as string
-                field.V = pikepdf.String(str(value))
-                if "/AP" in field:
-                    del field["/AP"]
-                acroform.NeedAppearances = pikepdf.Boolean(True)
-                fields_updated += 1
-
-        logger.info(f"Updated {fields_updated} fields")
-
-        # Save the PDF
-        pdf.save(output_path)
-        pdf.close()
-
-        output_size = os.path.getsize(output_path)
-        logger.info(f"PDF written to: {output_path} ({output_size} bytes)")
-
+        logger.info(f"PDF written to: {output_path}")
         return True
 
     except Exception as e:
