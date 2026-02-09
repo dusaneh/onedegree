@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rating Statistics - OD Map</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 1rem;
+            line-height: 1.5;
+        }
+        nav {
+            background: #333;
+            padding: 1rem;
+            margin: -1rem -1rem 1rem -1rem;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin-right: 1.5rem;
+            font-weight: 500;
+        }
+        nav a:hover { text-decoration: underline; }
+        h1 { margin-bottom: 0.5rem; color: #333; }
+        .meta { color: #666; margin-bottom: 1.5rem; font-size: 0.9rem; }
+        .card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .card h2 {
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+            color: #333;
+        }
+        .chart-container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .legend {
+            display: flex;
+            gap: 2rem;
+            justify-content: center;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .legend-box {
+            width: 20px;
+            height: 12px;
+            border-radius: 2px;
+        }
+        .legend-box.ci50 { background: #3b82f6; }
+        .legend-box.ci95 { background: #93c5fd; }
+        .legend-line {
+            width: 20px;
+            height: 2px;
+            background: #1e40af;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.95rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f9f9f9;
+            font-weight: 600;
+            color: #555;
+        }
+        tr:hover td { background: #fafafa; }
+        .pct-cell { font-weight: 500; }
+        .ci-cell { color: #666; font-size: 0.9rem; }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+        .summary-stats {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 600;
+            color: #3b82f6;
+        }
+        .stat-label {
+            font-size: 0.85rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/rate">Rate</a>
+        <a href="/rate/stats">Stats</a>
+    </nav>
+
+    <h1>Rating Statistics</h1>
+    <p class="meta">
+        Bootstrap Iterations: {{ iterations }}
+    </p>
+
+    {% if total_ratings > 0 %}
+    <div class="card">
+        <h2>Summary</h2>
+        <div class="summary-stats">
+            <div class="stat-item">
+                <div class="stat-value">{{ total_ratings }}</div>
+                <div class="stat-label">Total Ratings</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>% Same by LLM Similarity Score</h2>
+        <div class="chart-container">
+            <canvas id="statsChart"></canvas>
+        </div>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-box ci50"></div>
+                <span>50% CI</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-box ci95"></div>
+                <span>95% CI</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-line"></div>
+                <span>Mean</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Detailed Statistics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>LLM Score</th>
+                    <th>Ratings</th>
+                    <th>% Same</th>
+                    <th>50% CI</th>
+                    <th>95% CI</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in stats %}
+                <tr>
+                    <td>{{ row.score }}</td>
+                    <td>{{ row.count }}</td>
+                    <td class="pct-cell">{{ "%.1f"|format(row.pct_same) }}%</td>
+                    <td class="ci-cell">
+                        {% if row.count > 0 %}
+                        {{ "%.1f"|format(row.ci_50[0]) }}% - {{ "%.1f"|format(row.ci_50[1]) }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td class="ci-cell">
+                        {% if row.count > 0 %}
+                        {{ "%.1f"|format(row.ci_95[0]) }}% - {{ "%.1f"|format(row.ci_95[1]) }}%
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+    const ctx = document.getElementById('statsChart').getContext('2d');
+
+    const stats = {{ stats | tojson }};
+    const labels = stats.map(s => 'Score ' + s.score);
+    const means = stats.map(s => s.pct_same);
+    const ci50 = stats.map(s => [s.ci_50[0], s.ci_50[1]]);
+    const ci95 = stats.map(s => [s.ci_95[0], s.ci_95[1]]);
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '95% CI',
+                    data: ci95,
+                    backgroundColor: 'rgba(147, 197, 253, 0.8)',
+                    borderColor: 'rgba(147, 197, 253, 1)',
+                    borderWidth: 1,
+                    barPercentage: 0.6,
+                    categoryPercentage: 0.8,
+                },
+                {
+                    label: '50% CI',
+                    data: ci50,
+                    backgroundColor: 'rgba(59, 130, 246, 0.9)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    barPercentage: 0.35,
+                    categoryPercentage: 0.8,
+                },
+                {
+                    label: 'Mean',
+                    type: 'line',
+                    data: means,
+                    borderColor: '#1e40af',
+                    backgroundColor: '#1e40af',
+                    borderWidth: 3,
+                    pointRadius: 6,
+                    pointStyle: 'line',
+                    pointBorderWidth: 3,
+                    showLine: false,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: '% Rated as Same'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: 'LLM Similarity Score'
+                    }
+                }
+            },
+            plugins: {
+                title: {
+                    display: true,
+                    text: 'Human Agreement with LLM Similarity Scores',
+                    font: { size: 16 }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const idx = context.dataIndex;
+                            const stat = stats[idx];
+                            if (context.dataset.label === 'Mean') {
+                                return 'Mean: ' + stat.pct_same.toFixed(1) + '%';
+                            } else if (context.dataset.label === '50% CI') {
+                                return '50% CI: ' + stat.ci_50[0].toFixed(1) + '% - ' + stat.ci_50[1].toFixed(1) + '%';
+                            } else {
+                                return '95% CI: ' + stat.ci_95[0].toFixed(1) + '% - ' + stat.ci_95[1].toFixed(1) + '%';
+                            }
+                        }
+                    }
+                },
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    </script>
+    {% else %}
+    <div class="card">
+        <div class="empty-state">
+            <p>No ratings have been submitted yet.</p>
+            <p><a href="/rate">Start rating question pairs</a></p>
+        </div>
+    </div>
+    {% endif %}
+</body>
+</html>

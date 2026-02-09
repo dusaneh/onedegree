@@ -15,7 +15,7 @@ import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_cors import CORS
 from typing import Any, Dict, List, Optional, Tuple
 import requests
@@ -37,7 +37,12 @@ from form_mapping import (
     is_already_mapped,
     FormMappingStats,
 )
-from database import save_form_record_db
+from database import (
+    save_form_record_db,
+    save_similarity_rating_db,
+    get_rating_counts_by_score_db,
+    get_all_ratings_db,
+)
 from canonical_questions import (
     list_canonical_versions,
     load_and_simplify_all_forms,
@@ -65,8 +70,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app
-app = Flask(__name__)
+app = Flask(__name__, template_folder="client/templates")
 CORS(app)  # Enable CORS for all routes
+
+# Rating UI configuration
+RATING_CONFIG = {
+    "questions_per_page": 10,
+    "bootstrap_iterations": 1000,
+}
 
 # ============================================================================
 # Run Tracking (in-memory for simplicity, use Redis/DB in production)
@@ -1534,6 +1545,248 @@ def get_canonical_stats():
         "success": True,
         "versions": version_stats
     })
+
+
+# ============================================================================
+# Similarity Rating UI
+# ============================================================================
+
+def bootstrap_confidence_interval(values: list, iterations: int = 300) -> Dict[float, Tuple[float, float]]:
+    """
+    Calculate bootstrap CI for proportion of True values.
+    Returns dict: {0.50: (low, high), 0.95: (low, high)}
+    """
+    if len(values) < 2:
+        pct = (sum(values) / max(1, len(values))) * 100 if values else 0
+        return {0.50: (pct, pct), 0.95: (pct, pct)}
+
+    n = len(values)
+    proportions = []
+
+    for _ in range(iterations):
+        sample = random.choices(values, k=n)  # Resample with replacement
+        proportions.append(sum(sample) / n * 100)
+
+    proportions.sort()
+
+    # 50% CI (25th to 75th percentile)
+    idx_50_low = int(0.25 * iterations)
+    idx_50_high = int(0.75 * iterations) - 1
+    # 95% CI (2.5th to 97.5th percentile)
+    idx_95_low = int(0.025 * iterations)
+    idx_95_high = int(0.975 * iterations) - 1
+
+    return {
+        0.50: (proportions[max(0, idx_50_low)], proportions[min(len(proportions)-1, idx_50_high)]),
+        0.95: (proportions[max(0, idx_95_low)], proportions[min(len(proportions)-1, idx_95_high)]),
+    }
+
+
+def get_random_rating_pairs(version_id: str, count: int = 10) -> List[Dict]:
+    """
+    Get random question pairs for rating, stratified by LLM similarity score.
+    Prioritizes scores with fewer existing ratings to balance the dataset.
+    """
+    # Load form records and canonical questions
+    records = load_form_records()
+    try:
+        loaded_version_id, canonical_questions = load_canonical_questions(version_id)
+    except (ValueError, FileNotFoundError):
+        return []
+
+    canonical_by_id = {q["canonical_question_id"]: q for q in canonical_questions}
+
+    # Get existing rating counts to prioritize under-sampled scores
+    existing_counts = get_rating_counts_by_score_db(version_id)
+
+    # Collect all (form_question, canonical_question) pairs with mappings
+    pairs_by_score = {1: [], 2: [], 3: [], 4: [], 5: []}
+
+    for record in records:
+        opp_id = record.get("opportunity_id", "")
+        form_structure = record.get("form_structure", {})
+        questions = form_structure.get("questions", [])
+
+        for q in questions:
+            q_num = q.get("question_number") or q.get("question_id", "")
+            q_text = q.get("question_text") or q.get("question_text_short", "")
+
+            for m in q.get("mappings", []):
+                if m.get("canonical_version_id") == loaded_version_id:
+                    cq_id = m.get("canonical_question_id")
+                    score = m.get("similarity_score")
+
+                    if cq_id and score and 1 <= score <= 5:
+                        canonical_def = canonical_by_id.get(cq_id)
+                        if canonical_def:
+                            pair = {
+                                "id": f"{opp_id}|{q_num}|{cq_id}",
+                                "form_opp_id": opp_id,
+                                "form_question_number": q_num,
+                                "form_question_text": q_text,
+                                "canonical_question_id": cq_id,
+                                "canonical_question_text": canonical_def.get("question_text", ""),
+                                "llm_score": score,
+                            }
+                            pairs_by_score[score].append(pair)
+                    break
+
+    # Calculate sampling weights - prioritize scores with fewer ratings
+    # Add 1 to avoid division by zero, invert so fewer ratings = higher weight
+    total_existing = sum(existing_counts.values()) + 5  # +5 to avoid all zeros
+    weights = {}
+    for score in range(1, 6):
+        # Weight inversely proportional to existing count
+        weights[score] = total_existing / (existing_counts.get(score, 0) + 1)
+
+    # Normalize weights
+    total_weight = sum(weights.values())
+    for score in weights:
+        weights[score] /= total_weight
+
+    # Sample proportionally to weights, but ensure we have pairs available
+    selected = []
+    target_per_score = {}
+    for score in range(1, 6):
+        available = len(pairs_by_score[score])
+        target = int(count * weights[score])
+        target_per_score[score] = min(target, available)
+
+    # First pass: sample according to weighted targets
+    for score in [1, 2, 3, 4, 5]:
+        bucket = pairs_by_score[score]
+        target = target_per_score[score]
+        if bucket and target > 0:
+            sample_size = min(target, len(bucket))
+            selected.extend(random.sample(bucket, sample_size))
+
+    # Fill remaining slots, still prioritizing under-sampled scores
+    remaining = count - len(selected)
+    if remaining > 0:
+        # Sort scores by existing count (ascending) to prioritize under-sampled
+        scores_by_need = sorted(range(1, 6), key=lambda s: existing_counts.get(s, 0))
+
+        for score in scores_by_need:
+            if remaining <= 0:
+                break
+            bucket = pairs_by_score[score]
+            available = [p for p in bucket if p not in selected]
+            if available:
+                additional = min(remaining, len(available))
+                selected.extend(random.sample(available, additional))
+                remaining -= additional
+
+    random.shuffle(selected)
+    return selected[:count]
+
+
+def calculate_rating_stats(version_id: str, iterations: int = 300) -> List[Dict]:
+    """
+    Calculate rating statistics with bootstrap CIs for each score.
+    """
+    all_ratings = get_all_ratings_db(version_id)
+    stats = []
+
+    for score in [5, 4, 3, 2, 1]:
+        values = all_ratings.get(score, [])
+        count = len(values)
+
+        if count > 0:
+            pct_same = (sum(values) / count) * 100
+            ci = bootstrap_confidence_interval(values, iterations)
+        else:
+            pct_same = 0
+            ci = {0.50: (0, 0), 0.95: (0, 0)}
+
+        stats.append({
+            "score": score,
+            "count": count,
+            "pct_same": pct_same,
+            "ci_50": ci[0.50],
+            "ci_95": ci[0.95],
+        })
+
+    return stats
+
+
+@app.route("/rate", methods=["GET"])
+def rate_page():
+    """Render the rating page with random question pairs."""
+    # Get latest canonical version
+    version_id = get_latest_canonical_version()
+    if not version_id:
+        return "No canonical version available", 404
+
+    # Get random pairs for rating (sampling prioritizes under-rated scores)
+    pairs = get_random_rating_pairs(
+        version_id,
+        RATING_CONFIG["questions_per_page"]
+    )
+
+    return render_template(
+        "rate/rate.html",
+        version_id=version_id,
+        pairs=pairs
+    )
+
+
+@app.route("/rate/submit", methods=["POST"])
+def rate_submit():
+    """Save submitted ratings and redirect to get more."""
+    version_id = request.form.get("version_id")
+    if not version_id:
+        return "Missing version_id", 400
+
+    # Process each rating from the form
+    for key, value in request.form.items():
+        if key == "version_id":
+            continue
+
+        # Key format: "opp_id|q_num|cq_id"
+        if "|" in key:
+            parts = key.split("|")
+            if len(parts) == 3:
+                opp_id, q_num, cq_id = parts
+                is_same = value == "same"
+
+                # Get the LLM score from hidden field
+                score_key = f"score_{key}"
+                llm_score = int(request.form.get(score_key, 3))
+
+                save_similarity_rating_db(
+                    canonical_version_id=version_id,
+                    form_opportunity_id=opp_id,
+                    form_question_number=q_num,
+                    canonical_question_id=cq_id,
+                    llm_similarity_score=llm_score,
+                    is_same=is_same
+                )
+
+    return redirect(url_for("rate_page"))
+
+
+@app.route("/rate/stats", methods=["GET"])
+def rate_stats_page():
+    """Render the statistics page with bootstrap CIs."""
+    # Get latest canonical version
+    version_id = get_latest_canonical_version()
+    if not version_id:
+        return "No canonical version available", 404
+
+    iterations = RATING_CONFIG["bootstrap_iterations"]
+    stats = calculate_rating_stats(version_id, iterations)
+
+    # Get total count
+    counts = get_rating_counts_by_score_db(version_id)
+    total_ratings = sum(counts.values())
+
+    return render_template(
+        "rate/rate_stats.html",
+        version_id=version_id,
+        stats=stats,
+        iterations=iterations,
+        total_ratings=total_ratings
+    )
 
 
 # ============================================================================

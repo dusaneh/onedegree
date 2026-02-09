@@ -322,6 +322,24 @@ class Od1CanonicalQuestion(Base):
         }
 
 
+class Od1SimilarityRating(Base):
+    """Human rating of LLM-assigned similarity scores."""
+    __tablename__ = "od1_similarity_ratings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    canonical_version_id = Column(String(64), nullable=False, index=True)
+    form_opportunity_id = Column(String(255), nullable=False)
+    form_question_number = Column(String(50), nullable=False)
+    canonical_question_id = Column(String(50), nullable=False)
+    llm_similarity_score = Column(Integer, nullable=False)  # 1-5
+    is_same = Column(Boolean, nullable=False)
+    rated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_od1_ratings_version_score", "canonical_version_id", "llm_similarity_score"),
+    )
+
+
 # ============================================================================
 # Database Operations
 # ============================================================================
@@ -617,6 +635,104 @@ def set_latest_canonical_version_db(version_id: str) -> bool:
         session.rollback()
         logger.error(f"Failed to set latest version: {e}")
         return False
+    finally:
+        session.close()
+
+
+# ============================================================================
+# Similarity Rating Operations
+# ============================================================================
+
+def save_similarity_rating_db(
+    canonical_version_id: str,
+    form_opportunity_id: str,
+    form_question_number: str,
+    canonical_question_id: str,
+    llm_similarity_score: int,
+    is_same: bool
+) -> Od1SimilarityRating:
+    """Save a single similarity rating."""
+    session = get_session()
+    try:
+        rating = Od1SimilarityRating(
+            canonical_version_id=canonical_version_id,
+            form_opportunity_id=form_opportunity_id,
+            form_question_number=form_question_number,
+            canonical_question_id=canonical_question_id,
+            llm_similarity_score=llm_similarity_score,
+            is_same=is_same
+        )
+        session.add(rating)
+        session.commit()
+        logger.info(f"Saved rating: score={llm_similarity_score}, is_same={is_same}")
+        return rating
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Failed to save rating: {e}")
+        raise
+    finally:
+        session.close()
+
+
+def get_rating_counts_by_score_db(version_id: str) -> Dict[int, int]:
+    """
+    Get rating counts grouped by LLM similarity score.
+    Returns dict like {1: 5, 2: 10, 3: 15, 4: 8, 5: 3}
+    """
+    session = get_session()
+    try:
+        from sqlalchemy import func
+        results = session.query(
+            Od1SimilarityRating.llm_similarity_score,
+            func.count(Od1SimilarityRating.id)
+        ).filter(
+            Od1SimilarityRating.canonical_version_id == version_id
+        ).group_by(
+            Od1SimilarityRating.llm_similarity_score
+        ).all()
+
+        counts = {score: 0 for score in range(1, 6)}
+        for score, count in results:
+            counts[score] = count
+        return counts
+    finally:
+        session.close()
+
+
+def get_ratings_by_score_db(version_id: str, score: int) -> List[bool]:
+    """
+    Get all is_same values for a specific LLM score.
+    Returns list of booleans for bootstrap resampling.
+    """
+    session = get_session()
+    try:
+        results = session.query(Od1SimilarityRating.is_same).filter(
+            Od1SimilarityRating.canonical_version_id == version_id,
+            Od1SimilarityRating.llm_similarity_score == score
+        ).all()
+        return [r[0] for r in results]
+    finally:
+        session.close()
+
+
+def get_all_ratings_db(version_id: str) -> Dict[int, List[bool]]:
+    """
+    Get all is_same values grouped by LLM score.
+    Returns dict like {1: [True, False, ...], 2: [...], ...}
+    """
+    session = get_session()
+    try:
+        results = session.query(
+            Od1SimilarityRating.llm_similarity_score,
+            Od1SimilarityRating.is_same
+        ).filter(
+            Od1SimilarityRating.canonical_version_id == version_id
+        ).all()
+
+        ratings = {score: [] for score in range(1, 6)}
+        for score, is_same in results:
+            ratings[score].append(is_same)
+        return ratings
     finally:
         session.close()
 

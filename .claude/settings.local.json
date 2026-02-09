@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(.venvScriptspip install python-dotenv)",
+      "Bash(\".venv\\\\Scripts\\\\pip.exe\" install python-dotenv)",
+      "Bash(\".venv\\\\Scripts\\\\pip.exe\" install PyPDFForm)",
+      "Bash(python3:*)",
+      "Bash(done)",
+      "Bash(while read line)",
+      "Bash(echo:*)",
+      "Bash(powershell -Command \"\\(Get-Content ''C:\\\\pp2\\\\od_map\\\\data\\\\form_metadata.jsonl'' | Measure-Object -Line\\).Lines\")",
+      "Bash(powershell:*)",
+      "Bash(findstr:*)",
+      "Bash(cd:*)",
+      "Bash(find:*)",
+      "Bash(C:\\\\pp2\\\\od_map\\\\.venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(curl:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git remote add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: OD Map API with S3 storage\n\n- Flask API server with PDF form processing\n- PostgreSQL database for form metadata\n- S3 storage via Bucketeer for PDF files\n- Gemini API integration for metadata extraction\n- PDF form filling with PyPDFForm\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)",
+      "Bash(git rm:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

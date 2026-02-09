@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rate Similarity - OD Map</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 1rem;
+            line-height: 1.5;
+        }
+        nav {
+            background: #333;
+            padding: 1rem;
+            margin: -1rem -1rem 1rem -1rem;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            margin-right: 1.5rem;
+            font-weight: 500;
+        }
+        nav a:hover { text-decoration: underline; }
+        h1 { margin-bottom: 0.5rem; color: #333; }
+        .meta { color: #666; margin-bottom: 1rem; font-size: 0.9rem; }
+        .rating-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            padding: 1rem;
+        }
+        .question-pair {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        @media (max-width: 768px) {
+            .question-pair { grid-template-columns: 1fr; }
+        }
+        .question-box h4 {
+            font-size: 0.8rem;
+            color: #666;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+        .question-box p {
+            font-size: 1rem;
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+        .question-box small {
+            font-size: 0.75rem;
+            color: #999;
+        }
+        .rating-options {
+            display: flex;
+            gap: 1.5rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid #eee;
+        }
+        .rating-options label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .rating-options input[type="radio"] {
+            width: 1.2rem;
+            height: 1.2rem;
+        }
+        .submit-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            font-size: 1.1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .submit-btn:hover { background: #2563eb; }
+        .submit-btn:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/rate">Rate</a>
+        <a href="/rate/stats">Stats</a>
+    </nav>
+
+    <h1>Rate Question Similarity</h1>
+    <p class="meta">Are these two questions asking for the same information?</p>
+
+    {% if pairs %}
+    <form action="/rate/submit" method="POST" id="rating-form">
+        <input type="hidden" name="version_id" value="{{ version_id }}">
+
+        {% for pair in pairs %}
+        <div class="rating-card">
+            <input type="hidden" name="score_{{ pair.id }}" value="{{ pair.llm_score }}">
+
+            <div class="question-pair">
+                <div class="question-box">
+                    <h4>Question A</h4>
+                    <p>{{ pair.form_question_text }}</p>
+                </div>
+                <div class="question-box">
+                    <h4>Question B</h4>
+                    <p>{{ pair.canonical_question_text }}</p>
+                </div>
+            </div>
+
+            <div class="rating-options">
+                <label>
+                    <input type="radio" name="{{ pair.id }}" value="same" required>
+                    Same
+                </label>
+                <label>
+                    <input type="radio" name="{{ pair.id }}" value="not_same">
+                    Not Same
+                </label>
+            </div>
+        </div>
+        {% endfor %}
+
+        <button type="submit" class="submit-btn">Submit & Get More</button>
+    </form>
+    {% else %}
+    <div class="empty-state">
+        <p>No question pairs available for rating.</p>
+        <p>Make sure forms are mapped to the canonical version.</p>
+    </div>
+    {% endif %}
+
+    <script>
+        // Validate all questions are rated before submit
+        document.getElementById('rating-form')?.addEventListener('submit', function(e) {
+            const cards = document.querySelectorAll('.rating-card');
+            for (const card of cards) {
+                const radios = card.querySelectorAll('input[type="radio"]');
+                const checked = Array.from(radios).some(r => r.checked);
+                if (!checked) {
+                    e.preventDefault();
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    card.style.boxShadow = '0 0 0 3px #ef4444';
+                    setTimeout(() => card.style.boxShadow = '', 2000);
+                    alert('Please rate all questions before submitting.');
+                    return;
+                }
+            }
+        });
+    </script>
+</body>
+</html>
