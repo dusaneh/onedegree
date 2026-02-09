@@ -5,7 +5,7 @@
 
 // State
 let currentMetadata = null;
-let currentFilledPdfPath = null;
+let currentFilledPdfUrl = null;  // S3 presigned URL for filled PDF
 let formsData = [];
 let versionsData = [];
 
@@ -819,9 +819,9 @@ async function fillForm() {
     document.getElementById('result-card').style.display = 'block';
     renderFillResult(result);
 
-    if (result.success && result.response?.output_path) {
-        currentFilledPdfPath = result.response.output_path;
-        await previewFilledPdf(currentFilledPdfPath);
+    if (result.success && result.response?.download_url) {
+        currentFilledPdfUrl = result.response.download_url;
+        previewFilledPdf(currentFilledPdfUrl);
     }
 }
 
@@ -831,6 +831,7 @@ function renderFillResult(result) {
     if (result.success && result.response?.success) {
         const report = result.response.validation_report;
         const summary = report?.summary || {};
+        const s3Key = result.response.output_s3_key || 'N/A';
 
         container.className = 'success';
         container.innerHTML = `
@@ -839,7 +840,7 @@ function renderFillResult(result) {
                 <span class="result-title">Form Filled Successfully</span>
             </div>
             <div class="result-details">
-                <strong>Output:</strong> <code>${result.response.output_path}</code><br>
+                <strong>S3 Key:</strong> <code>${s3Key}</code><br>
                 Fields filled: ${summary.fields_filled || 0} / ${summary.total_fields || 0} &bull;
                 Warnings: ${summary.warnings || 0} &bull;
                 Errors: ${summary.errors || 0}
@@ -859,25 +860,22 @@ function renderFillResult(result) {
     }
 }
 
-async function previewFilledPdf(filepath) {
-    const result = await apiCall(`/proxy/pdf/preview?path=${encodeURIComponent(filepath)}`);
-
-    if (result.success) {
-        const container = document.getElementById('pdf-preview-container');
-        container.innerHTML = `<embed src="data:application/pdf;base64,${result.data}" type="application/pdf">`;
-    } else {
-        document.getElementById('pdf-preview-container').innerHTML = '<p class="muted">Failed to load PDF preview</p>';
-    }
+function previewFilledPdf(s3Url) {
+    // Use the S3 presigned URL directly in an embed
+    const container = document.getElementById('pdf-preview-container');
+    container.innerHTML = `<embed src="${s3Url}" type="application/pdf">`;
 }
 
 function downloadPdf() {
-    if (currentFilledPdfPath) {
-        window.open(`/proxy/pdf/download?path=${encodeURIComponent(currentFilledPdfPath)}`, '_blank');
+    if (currentFilledPdfUrl) {
+        // Open the S3 presigned URL directly - browser will download
+        window.open(currentFilledPdfUrl, '_blank');
     }
 }
 
 function openPdfNewTab() {
-    if (currentFilledPdfPath) {
-        window.open(`/proxy/pdf/preview?path=${encodeURIComponent(currentFilledPdfPath)}&inline=true`, '_blank');
+    if (currentFilledPdfUrl) {
+        // Open the S3 presigned URL in a new tab
+        window.open(currentFilledPdfUrl, '_blank');
     }
 }
