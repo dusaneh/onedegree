@@ -752,9 +752,10 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
         else:
             logger.warning("Source PDF has no form schema!")
 
-        # Fill the form
-        logger.info("Calling PdfWrapper.fill()...")
-        filled = pdf.fill(field_values)
+        # Fill the form with simple_mode=False to force appearance stream regeneration
+        # This ensures the values are visually rendered in the PDF
+        logger.info("Calling PdfWrapper.fill() with simple_mode=False...")
+        filled = pdf.fill(field_values, simple_mode=False)
 
         # Write to output
         with open(output_path, "wb") as f:
@@ -763,6 +764,18 @@ def write_pdf(source_path: str, output_path: str, field_values: Dict[str, Any]) 
             logger.info(f"Wrote {len(filled_bytes)} bytes to output")
 
         logger.info(f"PDF written to: {output_path}")
+
+        # Verify values were written by reading back the filled PDF
+        logger.info("Verifying filled PDF...")
+        verification_pdf = PdfWrapper(output_path)
+        verify_schema = verification_pdf.schema
+        if verify_schema:
+            verify_props = verify_schema.get("properties", {})
+            for field_name, expected_value in field_values.items():
+                if field_name in verify_props:
+                    actual = verify_props[field_name]
+                    logger.info(f"  Verify '{field_name}': schema={actual}")
+
         return True
 
     except Exception as e:
