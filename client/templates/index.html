@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Form Processing - Client UI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>PDF Form Processing</h1>
+        <div class="header-controls">
+            <div class="api-toggle">
+                <label>API:</label>
+                <select id="api-url-select" onchange="switchApiUrl()">
+                    <option value="local">Local (localhost:5000)</option>
+                    <option value="heroku">Heroku (blurg)</option>
+                </select>
+            </div>
+            <div class="api-status">
+                <span id="api-status-indicator" class="status-indicator"></span>
+                <span id="api-status-text">Checking API...</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="app-layout">
+        <!-- Main Content -->
+        <main class="main-content">
+            <nav class="tabs">
+                <button class="tab active" data-tab="forms">Forms</button>
+                <button class="tab" data-tab="canonical">Canonical</button>
+                <button class="tab" data-tab="fill">Fill Form</button>
+            </nav>
+
+            <!-- Forms Tab -->
+            <section id="forms-tab" class="tab-content active">
+                <div class="card">
+                    <h2>Add PDF</h2>
+                    <div class="form-row">
+                        <div class="form-group flex-grow">
+                            <label>File Path (on server):</label>
+                            <input type="text" id="pdf-file-path" placeholder="C:/pp2/od_map/examples/fillable_form1.pdf">
+                        </div>
+                        <div class="form-group">
+                            <label>Opportunity ID:</label>
+                            <input type="text" id="pdf-opp-id" placeholder="form1">
+                        </div>
+                        <div class="form-group btn-group">
+                            <button onclick="addPdf()" class="btn primary">Add PDF</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Form Statistics</h2>
+                        <button onclick="loadFormStats()" class="btn secondary">Refresh Stats</button>
+                    </div>
+                    <div id="forms-stats" class="stats-container"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Forms in System</h2>
+                        <div class="btn-row">
+                            <select id="forms-version-filter" onchange="filterFormsByVersion()">
+                                <option value="">All Versions</option>
+                            </select>
+                            <button onclick="loadForms()" class="btn secondary">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="forms-list" class="list-container"></div>
+                </div>
+            </section>
+
+            <!-- Canonical Tab -->
+            <section id="canonical-tab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Creation Runs</h2>
+                        <div class="btn-row">
+                            <button onclick="loadRuns()" class="btn secondary">Refresh Runs</button>
+                            <button onclick="createCanonical()" class="btn primary">Create New Canonical</button>
+                        </div>
+                    </div>
+                    <div id="runs-list" class="list-container"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Canonical Versions</h2>
+                        <button onclick="loadVersions()" class="btn secondary">Refresh</button>
+                    </div>
+                    <div id="versions-list" class="list-container"></div>
+                </div>
+            </section>
+
+            <!-- Fill Form Tab -->
+            <section id="fill-tab" class="tab-content">
+                <!-- Step 1: Select Form -->
+                <div class="card">
+                    <h2>1. Select Form & Get Metadata</h2>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Opportunity ID:</label>
+                            <select id="fill-opp-id" onchange="onFormSelect()">
+                                <option value="">-- Select Form --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Checksum:</label>
+                            <input type="text" id="fill-checksum" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Version ID:</label>
+                            <select id="fill-version-id">
+                                <option value="">-- Select Version --</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Min Similarity:</label>
+                            <input type="number" id="fill-min-similarity" value="3" min="1" max="5" style="width: 80px;">
+                        </div>
+                        <div class="form-group btn-group">
+                            <button onclick="getMetadata()" class="btn primary">Get Metadata</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Fill Answers -->
+                <div class="card">
+                    <h2>2. Fill Answers</h2>
+                    <div id="answers-form" class="answers-container">
+                        <p class="muted">Select a form and click "Get Metadata" to load questions.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3: Submit -->
+                <div class="card">
+                    <h2>3. Submit & Generate PDF</h2>
+                    <button onclick="fillForm()" class="btn primary lg" id="fill-btn" disabled>Fill Form</button>
+                </div>
+
+                <!-- Step 4: Result & Preview -->
+                <div class="card" id="result-card" style="display: none;">
+                    <h2>4. Result</h2>
+                    <div id="fill-result"></div>
+                    <div class="pdf-preview-wrapper">
+                        <div id="pdf-preview-container"></div>
+                        <div id="pdf-actions">
+                            <button onclick="downloadPdf()" class="btn secondary">Download PDF</button>
+                            <button onclick="openPdfNewTab()" class="btn secondary">Open in New Tab</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Sidebar for Request/Response -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>API Calls</h3>
+                <button onclick="clearApiLog()" class="btn secondary sm">Clear</button>
+            </div>
+            <div id="api-log" class="api-log"></div>
+        </aside>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
